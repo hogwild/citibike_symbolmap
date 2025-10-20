@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Charts using react</title>
+        <!--import the libraries needed-->
+       <!-- <link rel="stylesheet" href="styles.css"> -->
+        <style>
+            body {
+                
+                font-family: "Poppins", sans-serif;
+            }
+
+            .land {
+                fill:rgb(141, 155, 136);
+            } 
+            .interiors {
+                fill: none;
+                stroke: #C0C0BB;
+                stroke-width: 1px;
+            } 
+            .boundary {
+                fill: #9a9e9e;
+                stroke: #C0C0BB;
+            }
+
+            .sphere {
+                fill:rgb(150, 209, 243);
+            }
+
+            div.tooltip {
+                position: absolute;
+                text-align: center;
+                width: 60px;
+                height: 28px;
+                padding: 2px;
+                font: 12px sans-serif;
+                background: rgb(243, 239, 22);
+                border: 0px;
+                border-radius: 8px;
+                pointer-events: none;
+            }
+        </style>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+        <script src="https://d3js.org/d3.v6.min.js"></script>
+        <script src="https://d3js.org/d3-path.v2.min.js"></script>
+        <script src="https://d3js.org/d3-shape.v2.min.js"></script>
+        <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+        <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+        <script crossingin src="https://unpkg.com/babel-standalone/babel.js"></script>
+    </head>
+        
+    <body>
+        <!--some necessary html tags-->
+        <div id="root"></div>
+        <script type='text/babel'>
+            const margin = { top: 20, right: 20, bottom: 180, left: 40, gap: 50 };
+            const csvUrl = 'https://gist.githubusercontent.com/hogwild/3b9aa737bde61dcb4dfa60cde8046e04/raw/citibike2020.csv'
+            const mapUrl = "https://gist.githubusercontent.com/hogwild/6784f0d85e8837b9926c184c65ca8ed0/raw/2040d6883cf822817e34b5bda885348ec6214572/jerseyCity_geojson.json";
+            
+            function useData(csvPath){
+                const [dataAll, setData] = React.useState(null);
+                React.useEffect(()=>{
+                    d3.csv(csvPath).then(data => {
+                        data.forEach(d => {
+                            d.start = +d.start;
+                            d.tripdurationS = +d.tripdurationS;
+                            d.end = +d.end;
+                            d.tripdurationE = +d.tripdurationE;
+                        });
+                        setData(data);
+                    });
+                }, []);
+                return dataAll;
+            }
+
+            function useMap(jsonPath) {
+                const [data, setData] = React.useState(null);
+                React.useEffect(() => {
+                    d3.json(jsonPath).then(geoJsonData => {
+                        setData(geoJsonData);
+                    })
+                }, []);
+                return data;
+            }
+
+            function YAxis(props) {
+                const { yScale, height, axisLable } = props;
+                return <g>
+                {<line y2={height} stroke='black'/>}
+                {yScale.ticks().map(tickValue => 
+                    <g key={tickValue} transform={`translate(-10, ${yScale(tickValue)})`}>
+                        <line x2={10} stroke='black' />
+                        <text style={{ textAnchor:'end', fontSize:'10px' }} >
+                            {tickValue}
+                        </text>
+                    </g>
+                )}
+                <text style={{ textAnchor:'end', fontSize:'15px'}} transform={`translate(20, 0)rotate(-90)`}>
+                    {axisLable}
+                </text>
+                </g>
+            }
+
+            function XAxis(props) {
+                const { xScale, height, width, axisLable } = props;
+                if (typeof(xScale.domain()[0]) === "number") {
+                    return <g>
+                        {<line x1={0} y1={height} x2={width} y2={height} stroke='black'/>}
+                        {xScale.ticks().map(tickValue =>
+                            <g key={tickValue} transform={`translate(${xScale(tickValue)}, ${height})`}>
+                                <line y2={10} stroke='black' />
+                                <text style={{textAnchor: 'middle', fontSize:'10px' }} y={20}>
+                                    {tickValue}
+                                </text>
+                            </g>
+                        )}
+                        <text style={{ textAnchor:'end', fontSize:'15px'}} transform={`translate(${width}, ${height-10})`}>
+                            {axisLable}
+                        </text>
+                    </g>
+                }
+                if (typeof(xScale.domain()[0]) === "string") {
+                    return <g>
+                        {<line x1={0} y1={height} x2={width} y2={height} stroke='black'/>}
+                        {xScale.domain().map(tickValue =>
+                            <g key={tickValue+'B'} transform={`translate(${xScale(tickValue)}, 0)`}>
+                                <line y2={height} />
+                                <text style={{textAnchor: 'start', fontSize:'10px' }} y={height+3} transform={`rotate(75, 0, ${height+3})`}>
+                                    {tickValue}
+                                </text>
+                            </g>
+                        )}
+                    </g>
+                }}
+
+            function Points(props) {
+                const {data, xScale, yScale, height, width, selectedStation, setSelectedStation,
+                setTooltipX, setTooltipY } = props;
+                const getColor = (selectedStation, station) => {
+                    return selectedStation&&station===selectedStation ? "red" : "steelblue";
+                }
+                const getRadius = (selectedStation, station) => {
+                    return selectedStation&&station===selectedStation ? 10 : 5;
+                }
+                if (selectedStation===null) {
+                    return <g>
+                        {data.map(d => <circle key={d.station+"S"} cx={xScale(d.tripdurationS)} 
+                        cy={yScale(d.tripdurationE)} r={getRadius(selectedStation, d.station)} stroke="black" 
+                        fill={getColor(selectedStation, d.station)} 
+                        onMouseEnter={(event)=> {
+                            setSelectedStation(d.station);
+                            setTooltipX(event.pageX);
+                            setTooltipY(event.pageY);
+                        }} 
+                        onMouseOut={()=> {
+                            setSelectedStation(null);
+                            setTooltipX(null);
+                            setTooltipY(null);
+                        }}/>
+                        )}
+                        
+                        </g>
+                } else {
+                    return <g>
+                        {data.map(d => <circle key={d.station+"S"} cx={xScale(d.tripdurationS)} 
+                        cy={yScale(d.tripdurationE)} r={getRadius(selectedStation, d.station)} stroke="black" 
+                        fill={getColor(selectedStation, d.station)} 
+                        onMouseEnter={()=> setSelectedStation(d.station)} 
+                        onMouseOut={()=> setSelectedStation(null)}/>
+                        )}
+                        <rect key="cover" x={0} y={0} width={width} height={height} fill={"yellow"} opacity={0.6}/>
+                        {data.filter(d => d.station===selectedStation).map(d => <circle key={d.station+"S"} 
+                        cx={xScale(d.tripdurationS)} cy={yScale(d.tripdurationE)} r={getRadius(selectedStation, d.station)} 
+                        stroke="black" fill={getColor(selectedStation, d.station)} 
+                        onMouseEnter={(event) => {
+                            setSelectedStation(d.station);
+                            setTooltipX(event.pageX);
+                            setTooltipY(event.pageY);
+                        }} 
+                        onMouseOut={(event)=> {
+                            setSelectedStation(null);
+                            setTooltipX(null);
+                            setTooltipY(null);
+                        }}/>)}
+                        </g>
+                }
+            }
+
+            function ScatterPlot(props) {
+                const { offsetX, offsetY, data, xScale, yScale, height, width, 
+                    selectedStation, setSelectedStation, setTooltipX, setTooltipY} = props;
+                return <g transform={`translate(${offsetX}, ${offsetY})`}>
+                        <Points data={data} xScale={xScale} yScale={yScale} height={height} width={width} 
+                        selectedStation={selectedStation} setSelectedStation={setSelectedStation}
+                        setTooltipX={setTooltipX} setTooltipY={setTooltipY}/>
+                        <YAxis yScale={yScale} height={height} axisLable={"Trip duration end in"}/>
+                        <XAxis xScale={xScale} height={height} width={width} axisLable={"Trip duration start from"}/>
+                    </g>
+            }
+
+            function Bars(props) {
+                const {data, xScale, yScale, height, selectedStation, setSelectedStation} = props;
+                const getColor = (selectedStation, station) => {
+                    return selectedStation&&station===selectedStation ? "red" : "steelblue";
+                }
+                return <g>
+                    { data.map( d =>
+                    <rect key={d.station} x={xScale(d.station)} y={yScale(d.start)}
+                    width={xScale.bandwidth()} height={height-yScale(d.start)} stroke="black" 
+                    fill={getColor(selectedStation, d.station)} onMouseEnter={() => setSelectedStation(d.station)} 
+                    onMouseOut={()=> setSelectedStation(null)} />
+                    ) }
+                    </g>
+            }
+
+            function BarChart(props) {
+                const {offsetX, offsetY, data, xScale, yScale, height, width, selectedStation, setSelectedStation} = props;
+                return <g transform={`translate(${offsetX}, ${offsetY})`}>
+                    <Bars data={data} xScale={xScale} yScale={yScale} height={height}
+                    selectedStation={selectedStation} setSelectedStation={setSelectedStation} />
+                    <YAxis yScale={yScale} height={height} axisLable={"Bikers star from"}/>
+                    <XAxis xScale={xScale} height={height} width={width} />
+                    </g>
+            }
+
+            function Tooltip(props) {
+                const {d, left, top} = props;
+                //console.log(d);
+                if (left === null) {
+                    return <div></div>;
+                } else {
+                    const divStyle = {
+                        position: "absolute",
+                        textAlign: "left",
+                        width: "150px",
+                        height: "120px",
+                        padding: "2px",
+                        font: "12px sans-serif",
+                        background: "lightgreen",
+                        border: "0px",
+                        borderRadius: "8px",
+                        pointerEvents: "none",
+                        left: `${left+10}px`,
+                        top: `${top}px`
+                    };
+                    return <div style={divStyle} >
+                        <p>{d.station}</p>
+                        <p>Trip durations:</p>
+                        <ul> 
+                        <li>End in: {d.tripdurationE}</li>
+                        <li>Start from: {d.tripdurationS}</li>
+                        </ul>
+                        </div>
+                };  
+            }
+
+            function TheMap(props) {
+                // const [selectedStation, setSelectedStation] = React.useState(null);
+                const {map, data, width, height, selectedStation, setSelectedStation} = props;
+                const projection = d3.geoMercator().fitSize([width, height], map);
+                const path = d3.geoPath(projection);
+                const radius = d3.scaleLinear().range([2, 12])
+                    .domain([d3.min(data, d => d.start), d3.max(data, d => d.start)]);
+                const getColor = (selectedStation, station) => {
+                    return selectedStation&&station===selectedStation ? "steelblue" : "red";}
+                
+                //Todo: write a function to control the opacity
+
+                const mouseOver = (d) => {
+                    setSelectedStation(d.station);
+                }
+                const mouseOut = () => {
+                    setSelectedStation(null);
+                }
+
+                return <g>
+                    {map.features.map((feature, idx) => {
+                        return <path key={idx+"boundary"} className={"boundary"} d={path(feature)} />
+                    })}
+                    {data.map(d => {
+                        const [x, y] =  projection([d.longitude, d.latitude]);
+                        return <circle key={"station" + d.longitude+d.latitude} cx={x} cy={y} r={radius(d.start)} opacity={0.8} 
+                            fill={getColor(selectedStation, d.station)} onMouseEnter={()=>{mouseOver(d)}} onMouseOut={mouseOut} />
+                    })}
+                    </g>
+            }
+
+            const Charts = () => {
+                const [selectedStation, setSelectedStation] = React.useState(null);
+                const [month, setMonth] = React.useState('4');
+                const [tooltipX, setTooltipX] = React.useState(null);
+                const [tooltipY, setTooltipY] = React.useState(null);
+                const SVG_WIDTH = 500;
+                const SVG_HEIGHT = 400;
+                const margin = {left: 50, right:30, top:30, bottom:80};
+                const width = SVG_WIDTH - margin.left - margin.right;
+                const height = SVG_HEIGHT - margin.top - margin.bottom;
+
+                const dataAll = useData(csvUrl);
+                const map = useMap(mapUrl);
+
+                if (!map || !dataAll) {
+                   return <pre>Loading...</pre>;
+                };
+               
+                const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const data = dataAll.filter( d => { 
+                    return d.month === MONTH[month] 
+                });
+
+                const stations = dataAll.filter( d => {
+                    return d.month === MONTH[month];
+                });
+
+                const selectedPoint = data.filter(d => d.station===selectedStation)[0];
+                const xScaleScatter = d3.scaleLinear()
+                  .domain([0, d3.max(dataAll, d => d.tripdurationS)])
+                  .range([0, width])
+                  .nice();
+                const yScaleScatter = d3.scaleLinear()
+                  .domain([0, d3.max(dataAll, d => d.tripdurationE)])
+                  .range([height, 0])
+                  .nice();
+                const xScaleBar = d3.scaleBand()
+                  .domain(data.map(d => d.station))
+                  .range([width, 0]);
+                const yScaleBar = d3.scaleLinear()
+                  .domain([0, d3.max(dataAll, d => d.start)])
+                  .range([height, 0])
+                  .nice();
+                const changeHandler = (event) => {
+                    setMonth(event.target.value);
+                };
+                return (
+                    <div>
+                        <div>
+                            <input key="slider" type='range' min='0' max='11' value={month} step='1' onChange={changeHandler}/>
+                            <input key="monthText" type="text" value={MONTH[month]} readOnly/>
+                        </div>
+                        <div className='row'>
+                            <div className='mx-auto col-lg-6'>
+                                <div className='row'>
+                                    <div className='mx-auto col-lg-6'>
+                                        <svg width={'100%'} viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}>
+                                            <ScatterPlot offsetX={margin.left} offsetY={margin.top} data={data} xScale={xScaleScatter} yScale={yScaleScatter} height={height} width={width}
+                                        selectedStation={selectedStation} setSelectedStation={setSelectedStation} setTooltipX={setTooltipX} setTooltipY={setTooltipY}/>
+                                        </svg>
+                                    </div>
+                                </div>
+                                <div className='row'>
+                                    <div className='mx-auto col-lg-6'>
+                                        <svg width={'100%'} viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}>
+                                            <BarChart offsetX={margin.left} offsetY={margin.top} data={data} xScale={xScaleBar} yScale={yScaleBar} height={height} width={width}
+                                        selectedStation={selectedStation} setSelectedStation={setSelectedStation}
+                                            />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`mx-auto col-lg-6`}>
+                                <svg width={'100%'} viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}>
+                                    <TheMap map={map} data={stations} width={width} height={height} 
+                                selectedStation={selectedStation} setSelectedStation={setSelectedStation}/>
+                                </svg>
+                            </div>
+                    
+                        </div>
+                        <Tooltip d={selectedPoint} left={tooltipX} top={tooltipY}/>
+                    </div>
+                )   
+            }
+           const rootElement = document.getElementById('root');
+           ReactDOM.render(<Charts />, rootElement);
+        </script> 
+    </body>
+</html>
